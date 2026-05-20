@@ -1,0 +1,8 @@
+{
+  "name": "Skin Care & Routine Tracker",
+  "description": "An AI-powered app to track skin condition via photos, manage skincare routines, analyze product ingredients, and visualize skin progress over time.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": []
+}

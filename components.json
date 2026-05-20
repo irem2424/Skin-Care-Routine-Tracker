@@ -1,0 +1,127 @@
+import { useEffect, useState } from "react";
+import AppLayout from "../components/layout/AppLayout";
+import { useAuth } from "../lib/AuthContext";
+import { db } from "../lib/firebase";
+import { collection, query, where, getDocs, orderBy } from "firebase/firestore";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { useLanguage } from "../lib/LanguageContext";
+
+export default function Progress() {
+  const { user } = useAuth();
+  const { t } = useLanguage();
+  const [data, setData] = useState<any[]>([]);
+  const [period, setPeriod] = useState<"weekly" | "monthly">("weekly");
+
+  useEffect(() => {
+    if (user) {
+      loadProgress();
+    }
+  }, [user, period]);
+
+  const loadProgress = async () => {
+    if (!user) return;
+    try {
+      const q = query(collection(db, "skinPhotos"), where("userId", "==", user.uid), orderBy("createdAt", "asc"));
+      const snap = await getDocs(q);
+      const items = snap.docs.map(d => d.data());
+
+      // Group by Week or Month
+      const grouped: { [key: string]: number[] } = {};
+      items.forEach(item => {
+        const d = new Date(item.createdAt);
+        let key = "";
+        if (period === "weekly") {
+           // simple week grouping by joining year and week
+           const weekNum = Math.floor(d.getDate() / 7) + 1;
+           key = `Week ${weekNum}, ${d.toLocaleString("default", { month: "short" })}`;
+        } else {
+           key = `${d.toLocaleString("default", { month: "short", year: "numeric" })}`;
+        }
+
+        if (!grouped[key]) grouped[key] = [];
+        if (item.analysis?.overallScore) {
+          grouped[key].push(item.analysis.overallScore);
+        }
+      });
+
+      const formatted = Object.keys(grouped).map(key => {
+        const scores = grouped[key];
+        const avg = scores.reduce((a,b)=>a+b,0) / scores.length;
+        return { name: key, score: Number(avg.toFixed(1)) };
+      });
+
+      setData(formatted);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  return (
+    <AppLayout>
+      <div className="max-w-4xl mx-auto space-y-8 animate-fade-in">
+        <div className="text-center space-y-2">
+          <h1 className="text-3xl font-serif text-[#3c3c3c]">{t("progress.title")}</h1>
+          <p className="text-[#a0a096]">{t("progress.subtitle")}</p>
+        </div>
+
+        <div className="bg-white rounded-[32px] p-6 md:p-10 shadow-sm border border-[#f0eee6]">
+          {data.length < 2 ? (
+            <div className="text-center py-16 text-[#a0a096] italic">
+              {t("progress.no_data")}
+            </div>
+          ) : (
+            <div className="space-y-6">
+               <div className="flex justify-center gap-4">
+                 <button 
+                  onClick={() => setPeriod("weekly")}
+                  className={`px-4 py-2 rounded-full text-sm font-bold tracking-wider uppercase transition-colors ${period === 'weekly' ? 'bg-[#79836a] text-white' : 'bg-[#fbfaf7] text-[#a0a096] border border-[#e5e2d9]'}`}
+                 >
+                   {t("progress.weekly")}
+                 </button>
+                 <button 
+                  onClick={() => setPeriod("monthly")}
+                  className={`px-4 py-2 rounded-full text-sm font-bold tracking-wider uppercase transition-colors ${period === 'monthly' ? 'bg-[#79836a] text-white' : 'bg-[#fbfaf7] text-[#a0a096] border border-[#e5e2d9]'}`}
+                 >
+                   {t("progress.monthly")}
+                 </button>
+               </div>
+              <div className="h-80 w-full mt-8">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={data}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0eee6" />
+                    <XAxis 
+                      dataKey="name" 
+                      axisLine={false}
+                      tickLine={false}
+                      tick={{ fill: "#a0a096", fontSize: 12, fontFamily: 'monospace' }}
+                      dy={10}
+                    />
+                    <YAxis 
+                      domain={[0, 10]} 
+                      axisLine={false}
+                      tickLine={false}
+                      tick={{ fill: "#a0a096", fontSize: 12, fontFamily: 'monospace' }}
+                      dx={-10}
+                    />
+                    <Tooltip 
+                      contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.08)' }}
+                      itemStyle={{ color: '#79836a', fontWeight: 'bold' }}
+                    />
+                    <Line 
+                      type="monotone" 
+                      dataKey="score" 
+                      stroke="#79836a" 
+                      strokeWidth={3}
+                      dot={{ fill: '#79836a', strokeWidth: 2, r: 6, stroke: '#fff' }}
+                      activeDot={{ r: 8, strokeWidth: 0 }}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </AppLayout>
+  );
+}

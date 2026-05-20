@@ -1,0 +1,122 @@
+import React, { useEffect, useState } from "react";
+import AppLayout from "../components/layout/AppLayout";
+import { db } from "../lib/firebase";
+import { useAuth } from "../lib/AuthContext";
+import { useLanguage } from "../lib/LanguageContext";
+import { collection, query, where, getDocs, setDoc, doc } from "firebase/firestore";
+import { Button } from "../components/ui/button";
+import { Input } from "../components/ui/input";
+import { Label } from "../components/ui/label";
+import { Sparkles, Droplet, Moon } from "lucide-react";
+import { analyzeDailyLog } from "../lib/gemini";
+import Markdown from "react-markdown";
+
+export default function Tracker() {
+  const { user } = useAuth();
+  const { t, language } = useLanguage();
+  const [water, setWater] = useState<number | "">("");
+  const [sleep, setSleep] = useState<number | "">("");
+  const [saving, setSaving] = useState(false);
+  const [aiTip, setAiTip] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!user) return;
+    const fetchToday = async () => {
+      const today = new Date().toISOString().split("T")[0];
+      const q = query(
+        collection(db, "dailyLogs"),
+        where("userId", "==", user.uid),
+        where("date", "==", today)
+      );
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        const data = snap.docs[0].data();
+        setWater(data.water || "");
+        setSleep(data.sleep || "");
+        setAiTip(data.aiTip || null);
+      }
+    };
+    fetchToday();
+  }, [user]);
+
+  const handleSave = async () => {
+    if (!user || water === "" || sleep === "") return;
+    setSaving(true);
+    try {
+      const insight = await analyzeDailyLog(Number(water), Number(sleep), language || 'en');
+      setAiTip(insight);
+
+      const today = new Date().toISOString().split("T")[0];
+      const logId = `${user.uid}_${today}`;
+      await setDoc(doc(db, "dailyLogs", logId), {
+        userId: user.uid,
+        date: today,
+        water: Number(water),
+        sleep: Number(sleep),
+        aiTip: insight,
+        updatedAt: Date.now()
+      });
+    } catch (e) {
+      console.error(e);
+      alert("Failed to save progress.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <AppLayout>
+      <div className="max-w-xl mx-auto space-y-8 animate-fade-in">
+        <div>
+          <h1 className="text-3xl font-serif text-[#3c3c3c]">{t("tracker.title")}</h1>
+          <p className="text-[#a0a096]">{t("tracker.subtitle")}</p>
+        </div>
+
+        <div className="bg-white rounded-[32px] p-8 shadow-sm border border-[#f0eee6] space-y-6 flex flex-col items-center">
+          
+          <div className="w-full space-y-2">
+            <Label className="flex items-center text-[#4a5043] font-sans font-semibold mb-2">
+              <Droplet size={18} className="mr-2 text-[#79836a]" /> {t("tracker.water_intake")}
+            </Label>
+            <Input 
+              type="number" 
+              placeholder={t("tracker.water_placeholder")}
+              value={water} 
+              onChange={e => setWater(Number(e.target.value))}
+              className="bg-[#fbfaf7] border border-[#e5e2d9] rounded-xl h-14 text-lg text-[#3c3c3c] focus-visible:ring-[#79836a]" 
+            />
+          </div>
+
+          <div className="w-full space-y-2 pt-4">
+            <Label className="flex items-center text-[#4a5043] font-sans font-semibold mb-2">
+              <Moon size={18} className="mr-2 text-[#79836a]" /> {t("tracker.sleep")}
+            </Label>
+            <Input 
+              type="number" 
+              step="0.5"
+              placeholder={t("tracker.sleep_placeholder")}
+              value={sleep} 
+              onChange={e => setSleep(Number(e.target.value))}
+              className="bg-[#fbfaf7] border border-[#e5e2d9] rounded-xl h-14 text-lg text-[#3c3c3c] focus-visible:ring-[#79836a]" 
+            />
+          </div>
+          
+          <Button onClick={handleSave} disabled={saving || water === "" || sleep === ""} className="w-full h-14 rounded-full bg-[#79836a] hover:bg-[#79836a]/90 text-white font-sans text-lg mt-4 shadow-sm">
+            {saving ? t("tracker.saving") : t("tracker.save")}
+          </Button>
+
+          {aiTip && (
+            <div className="w-full mt-6 bg-[#f5f5f0] border border-[#e5e2d9] p-6 rounded-[24px]">
+              <h3 className="font-sans font-bold text-sm text-[#4a5043] mb-2 flex items-center">
+                <Sparkles size={20} className="mr-2 text-[#79836a]" /> {t("tracker.ai_tip")}
+              </h3>
+              <div className="text-[#7d7d7d] leading-relaxed font-serif italic text-base whitespace-pre-wrap flex flex-col gap-2">
+                <Markdown>{aiTip}</Markdown>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </AppLayout>
+  );
+}
